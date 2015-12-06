@@ -14,15 +14,27 @@ from flask import Flask
 import csv
 import os.path
 import glob
+import random
 
 debug = True
 
 dirDB = "./pDB"
 
 app = Flask(__name__)
-userName = ""
 data = {}
 passwords = {}
+tokens = {}
+
+
+def create_token(user):
+    token = ""
+    while len(token) != 3:
+        token += str(random.randint(0, 9))
+    token += 'z'
+    if user not in tokens:
+        tokens[user] = []
+    tokens[user].append(token)
+    return token
 
 
 def save_passwords():
@@ -54,9 +66,7 @@ def save_data():
 
 
 def load_data():
-    if not os.path.exists(dirDB):
-        pass
-    else:
+    if os.path.exists(dirDB):
         files_path = os.path.join(dirDB, "*_data.csv")
         files = glob.glob(files_path)
         for f in files:
@@ -66,6 +76,7 @@ def load_data():
             for key, val in csv.reader(open(f)):
                 data[name][key] = val
         load_passwords()
+    print data
 
 
 def is_int(s):
@@ -79,71 +90,80 @@ def is_int(s):
 #  LOG IN
 @app.route('/user', methods=['POST'])
 def login_user():
-    global userName
-    if (not request.json) or ('name' not in request.json) or ('pwd' not in request.json):
+    if (not request.json) or ('userName' not in request.json) or ('pwd' not in request.json):
         abort(BAD_REQUEST)
-    name = str(request.json['name'])
+    name = str(request.json['userName'])
     if name not in data:
         abort(PRECONDITION_FAILED)
     if passwords[name] != str(request.json['pwd']):
         abort(FORBIDDEN)
     else:
-        userName = name
-        return jsonify(), OK
+        t = create_token(name)
+        return jsonify(token=t), OK
 
 
 #  LOG OUT
 @app.route('/user', methods=['DELETE'])
 def logout_user():
-    global userName
-    if userName == "":
-        abort(UNAUTHORIZED)
-    if (not request.json) or ('name' not in request.json):
+    if (not request.json) or ('userName' not in request.json) or ('token' not in request.json):
         abort(BAD_REQUEST)
-    name = str(request.json['name'])
+    name = str(request.json['userName'])
+    token = str(request.json['token'])
+
+    if token not in tokens[name]:
+        abort(UNAUTHORIZED)
+
     if name not in data:
         abort(PRECONDITION_FAILED)
     else:
-        userName = ""
+        tokens[name].remove(token)
         return jsonify(), OK
 
 
 #  ADD USER
 @app.route('/user', methods=['PUT'])
 def add_user():
-    global userName
-    if (not request.json) or ('name' not in request.json) or ('pwd' not in request.json):
+    if (not request.json) or ('userName' not in request.json) or ('pwd' not in request.json):
         abort(BAD_REQUEST)
-    name = str(request.json['name'])
+    name = str(request.json['userName'])
     if name in data:
         abort(PRECONDITION_FAILED)
     else:
-        userName = name
-        data[userName] = {}
-        passwords[userName] = str(request.json['pwd'])
-        return jsonify(), OK
+        data[name] = {}
+        passwords[name] = str(request.json['pwd'])
+        t = create_token(name)
+        return jsonify(token=t), OK
 
 
 #  SHOW ALL
-@app.route('/product', methods=['GET'])
+@app.route('/product/all', methods=['POST'])
 def show_all_products():
-    if userName == "":
+
+    if (not request.json) or ('userName' not in request.json) or ('token' not in request.json):
+        abort(BAD_REQUEST)
+    user = str(request.json['userName'])
+    token = str(request.json['token'])
+    if token not in tokens[user]:
         abort(UNAUTHORIZED)
-    return jsonify(**(data[userName]))
+    return jsonify(**(data[user]))
 
 
 #  DELETE
 @app.route('/product', methods=['DELETE'])
 def delete_product():
-    if userName == "":
-        abort(UNAUTHORIZED)
-    if (not request.json) or ('name' not in request.json):
+    if (not request.json) or ('name' not in request.json)\
+            or ('userName' not in request.json) or ('token' not in request.json):
         abort(BAD_REQUEST)
 
     product = str(request.json['name'])
 
-    if product in data[userName].keys():
-        data[userName].pop(product)
+    user = str(request.json['userName'])
+    token = str(request.json['token'])
+    if token not in tokens[user]:
+        abort(UNAUTHORIZED)
+
+    if product in data[user].keys():
+        data[user].pop(product)
         save_data()
         return jsonify(), OK
     else:
@@ -153,18 +173,22 @@ def delete_product():
 #  ADD
 @app.route('/product', methods=['POST'])
 def add_product():
-    if userName == "":
-        abort(UNAUTHORIZED)
-    if (not request.json) or ('name' not in request.json):
+    if (not request.json) or ('name' not in request.json)\
+            or ('userName' not in request.json) or ('token' not in request.json):
         abort(BAD_REQUEST)
 
     product = str(request.json['name'])
 
-    if product in data[userName].keys():
+    user = str(request.json['userName'])
+    token = str(request.json['token'])
+    if token not in tokens[user]:
+        abort(UNAUTHORIZED)
+
+    if product in data[user].keys():
         abort(PRECONDITION_FAILED)
 
     else:
-        data[userName][product] = 0
+        data[user][product] = 0
         save_data()
         return jsonify(), OK
 
@@ -172,29 +196,33 @@ def add_product():
 #  CHANGE
 @app.route('/product', methods=['PUT'])
 def change_product():
-    if userName == "":
-        abort(UNAUTHORIZED)
     if (not request.json) or ('name' not in request.json) \
-            or ('change' not in request.json) or (not is_int(request.json['change'])):
+            or ('change' not in request.json) or (not is_int(request.json['change']))\
+            or ('userName' not in request.json) or ('token' not in request.json):
         abort(BAD_REQUEST)
 
     product = str(request.json['name'])
     change = int(request.json['change'])
 
-    if product in data[userName].keys():
-        quantity = int(data[userName][product])
+    user = str(request.json['userName'])
+    token = str(request.json['token'])
+    if token not in tokens[user]:
+        abort(UNAUTHORIZED)
+
+    if product in data[user].keys():
+        quantity = int(data[user][product])
         quantity += change
 
         if quantity < 0:
             abort(NOT_ACCEPTABLE)
 
-        data[userName][product] = str(quantity)
+        data[user][product] = str(quantity)
         save_data()
-        return jsonify(name=product, value=data[userName][product]), OK
+        return jsonify(name=product, value=data[user][product]), OK
 
     else:
         abort(PRECONDITION_FAILED)
 
 if __name__ == '__main__':
     load_data()
-    app.run(host='0.0.0.0', port=5678, debug=debug)
+    app.run(host='127.0.0.1', port=5678, debug=debug)
