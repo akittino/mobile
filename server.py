@@ -18,6 +18,8 @@ import random
 
 debug = True
 
+token_parts = '1234567890qwertyuiopasdfghjklzxcvbnm'
+
 dirDB = "./pDB"
 
 app = Flask(__name__)
@@ -27,13 +29,12 @@ tokens = {}
 
 
 def create_token(user):
+    global tokens
     token = ""
-    while len(token) != 3:
-        token += str(random.randint(0, 9))
-    token += 'z'
-    if user not in tokens:
-        tokens[user] = []
-    tokens[user].append(token)
+    while len(token) != 30:
+        token += str(random.choice(token_parts))
+    tokens[token] = user
+    print tokens
     return token
 
 
@@ -105,18 +106,14 @@ def login_user():
 #  LOG OUT
 @app.route('/user', methods=['DELETE'])
 def logout_user():
-    if (not request.json) or ('userName' not in request.json) or ('token' not in request.json):
+    if (not request.json) or ('token' not in request.json):
         abort(BAD_REQUEST)
-    name = str(request.json['userName'])
     token = str(request.json['token'])
 
-    if token not in tokens[name]:
+    if token not in tokens:
         abort(UNAUTHORIZED)
-
-    if name not in data:
-        abort(PRECONDITION_FAILED)
     else:
-        tokens[name].remove(token)
+        del tokens[token]
         return jsonify(), OK
 
 
@@ -139,28 +136,27 @@ def add_user():
 @app.route('/product/all', methods=['POST'])
 def show_all_products():
 
-    if (not request.json) or ('userName' not in request.json) or ('token' not in request.json):
+    if (not request.json) or ('token' not in request.json):
         abort(BAD_REQUEST)
-    user = str(request.json['userName'])
     token = str(request.json['token'])
-    if token not in tokens[user]:
+    if token not in tokens:
         abort(UNAUTHORIZED)
+    user = tokens[token]
     return jsonify(**(data[user]))
 
 
 #  DELETE
 @app.route('/product', methods=['DELETE'])
 def delete_product():
-    if (not request.json) or ('name' not in request.json)\
-            or ('userName' not in request.json) or ('token' not in request.json):
+    if (not request.json) or ('name' not in request.json) or ('token' not in request.json):
         abort(BAD_REQUEST)
 
     product = str(request.json['name'])
 
-    user = str(request.json['userName'])
     token = str(request.json['token'])
-    if token not in tokens[user]:
+    if token not in tokens:
         abort(UNAUTHORIZED)
+    user = tokens[token]
 
     if product in data[user].keys():
         data[user].pop(product)
@@ -173,16 +169,15 @@ def delete_product():
 #  ADD
 @app.route('/product', methods=['POST'])
 def add_product():
-    if (not request.json) or ('name' not in request.json)\
-            or ('userName' not in request.json) or ('token' not in request.json):
+    if (not request.json) or ('name' not in request.json) or ('token' not in request.json):
         abort(BAD_REQUEST)
 
     product = str(request.json['name'])
 
-    user = str(request.json['userName'])
     token = str(request.json['token'])
-    if token not in tokens[user]:
+    if token not in tokens:
         abort(UNAUTHORIZED)
+    user = tokens[token]
 
     if product in data[user].keys():
         abort(PRECONDITION_FAILED)
@@ -196,25 +191,21 @@ def add_product():
 #  CHANGE
 @app.route('/product', methods=['PUT'])
 def change_product():
-    if (not request.json) or ('name' not in request.json) \
-            or ('change' not in request.json) or (not is_int(request.json['change']))\
-            or ('userName' not in request.json) or ('token' not in request.json):
+    if (not request.json) or ('name' not in request.json) or ('change' not in request.json) \
+            or (not is_int(request.json['change'])) or ('token' not in request.json):
         abort(BAD_REQUEST)
 
     product = str(request.json['name'])
     change = int(request.json['change'])
 
-    user = str(request.json['userName'])
     token = str(request.json['token'])
-    if token not in tokens[user]:
+    if token not in tokens:
         abort(UNAUTHORIZED)
+    user = tokens[token]
 
     if product in data[user].keys():
         quantity = int(data[user][product])
         quantity += change
-
-        if quantity < 0:
-            abort(NOT_ACCEPTABLE)
 
         data[user][product] = str(quantity)
         save_data()
