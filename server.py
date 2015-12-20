@@ -17,9 +17,11 @@ debug = True
 token_parts = '1234567890qwertyuiopasdfghjklzxcvbnm'
 
 app = Flask(__name__)
-data = {}
+
 passwords = {}
 tokens = {}
+totalList = {}
+productList = {}
 
 
 def create_token(user):
@@ -28,6 +30,10 @@ def create_token(user):
     while len(token) != 30:
         token += str(random.choice(token_parts))
     tokens[token] = user
+    totalList[user] = []
+    if user not in productList:
+        productList[user] = {}
+    productList[user][token] = {}
     print tokens
     return token
 
@@ -40,13 +46,80 @@ def is_int(s):
         return False
 
 
+#  SYNC
+@app.route('/sync', methods=['POST'])
+def sync():
+    if (not request.json) or ('token' not in request.json) or ('product' not in request.json):
+        abort(BAD_REQUEST)
+
+    token = str(request.json['token'])
+    if token not in tokens:
+        abort(UNAUTHORIZED)
+
+    user = tokens[token]
+    newdata = request.json['product']
+    olddata = productList[user][token]
+    total = totalList[user]
+
+    exitdata = {}
+
+#  e -> exists     ne -> not exists
+#  id totalList | olddata | newdata || endTotal | exitdata
+# . 1   e       |   e     |   e     ||   e      |   e    +
+# . 2   e       |   e     |   ne    ||   ne  -  |   ne
+# . 3   e       |   ne    |   e     ||   e      |   e    +
+# . 4   e       |   ne    |   ne    ||   e      |   e    +
+# . 5   ne      |   e     |   e     ||   ne     |   ne
+# . 6   ne      |   e     |   ne    ||   ne     |   ne
+# . 7   ne      |   ne    |   e     ||   e   +  |   e    +
+# . 8   ne      |   ne    |   ne    ||   ne     |   ne
+
+    for key, value in newdata.iteritems():
+        if key in olddata and key in total:  # 1
+            exitdata[key] = value
+        elif key not in olddata and key in total:  # 3
+            exitdata[key] = value
+        elif key in olddata and key not in total:  # 5
+            pass
+        elif key not in olddata and key not in total:  # 7
+            exitdata[key] = value
+            total.append(key)
+
+    for key, value in olddata.iteritems():
+        if key not in newdata and key in total:  # 2
+            total.remove(key)
+        elif key not in newdata and key not in total:  # 6
+            pass
+
+    for key in total:
+        if key not in olddata and key not in newdata:  # 4
+            exitdata[key] = 0
+
+    productList[user][token] = exitdata
+
+    othersdata = {}
+
+    for key in total:
+        othersdata[key] = 0
+
+    for t, products in productList[user].iteritems():
+        if t != token:
+            for key, value in products.iteritems():
+                if key in othersdata:
+                    othersdata[key] += value
+
+    print productList[user]
+
+    return jsonify(othersdata=othersdata), OK
+
+
 #  LOG IN
 @app.route('/user', methods=['POST'])
 def login_user():
     if (not request.json) or ('userName' not in request.json) or ('pwd' not in request.json):
         abort(BAD_REQUEST)
     name = str(request.json['userName'])
-    if name not in data:
+    if name not in passwords:
         abort(PRECONDITION_FAILED)
     if passwords[name] != str(request.json['pwd']):
         abort(FORBIDDEN)
@@ -69,99 +142,19 @@ def logout_user():
         return jsonify(), OK
 
 
-#  ADD USER
+#  REGISTER
 @app.route('/user', methods=['PUT'])
 def add_user():
     if (not request.json) or ('userName' not in request.json) or ('pwd' not in request.json):
         abort(BAD_REQUEST)
     name = str(request.json['userName'])
-    if name in data:
+    if name in passwords:
         abort(PRECONDITION_FAILED)
     else:
-        data[name] = {}
         passwords[name] = str(request.json['pwd'])
         t = create_token(name)
         return jsonify(token=t), OK
 
-
-#  SHOW ALL
-@app.route('/product/all', methods=['POST'])
-def show_all_products():
-
-    if (not request.json) or ('token' not in request.json):
-        abort(BAD_REQUEST)
-    token = str(request.json['token'])
-    if token not in tokens:
-        abort(UNAUTHORIZED)
-    user = tokens[token]
-    return jsonify(**(data[user]))
-
-
-#  DELETE
-@app.route('/product', methods=['DELETE'])
-def delete_product():
-    if (not request.json) or ('name' not in request.json) or ('token' not in request.json):
-        abort(BAD_REQUEST)
-
-    product = str(request.json['name'])
-
-    token = str(request.json['token'])
-    if token not in tokens:
-        abort(UNAUTHORIZED)
-    user = tokens[token]
-
-    if product in data[user].keys():
-        data[user].pop(product)
-        return jsonify(), OK
-    else:
-        abort(PRECONDITION_FAILED)
-
-
-#  ADD
-@app.route('/product', methods=['POST'])
-def add_product():
-    if (not request.json) or ('name' not in request.json) or ('token' not in request.json):
-        abort(BAD_REQUEST)
-
-    product = str(request.json['name'])
-
-    token = str(request.json['token'])
-    if token not in tokens:
-        abort(UNAUTHORIZED)
-    user = tokens[token]
-
-    if product in data[user].keys():
-        abort(PRECONDITION_FAILED)
-
-    else:
-        data[user][product] = 0
-        return jsonify(), OK
-
-
-#  CHANGE
-@app.route('/product', methods=['PUT'])
-def change_product():
-    if (not request.json) or ('name' not in request.json) or ('change' not in request.json) \
-            or (not is_int(request.json['change'])) or ('token' not in request.json):
-        abort(BAD_REQUEST)
-
-    product = str(request.json['name'])
-    change = int(request.json['change'])
-
-    token = str(request.json['token'])
-    if token not in tokens:
-        abort(UNAUTHORIZED)
-    user = tokens[token]
-
-    if product in data[user].keys():
-        quantity = int(data[user][product])
-        quantity += change
-
-        data[user][product] = str(quantity)
-        return jsonify(name=product, value=data[user][product]), OK
-
-    else:
-        abort(PRECONDITION_FAILED)
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5678, debug=debug)
