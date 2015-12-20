@@ -2,7 +2,6 @@ from httplib import OK
 from httplib import BAD_REQUEST
 from httplib import UNAUTHORIZED
 from httplib import FORBIDDEN
-from httplib import NOT_ACCEPTABLE
 from httplib import PRECONDITION_FAILED
 
 
@@ -11,16 +10,11 @@ from flask import jsonify
 from flask import request
 from flask import Flask
 
-import csv
-import os.path
-import glob
 import random
 
 debug = True
 
 token_parts = '1234567890qwertyuiopasdfghjklzxcvbnm'
-
-dirDB = "./pDB"
 
 app = Flask(__name__)
 data = {}
@@ -36,48 +30,6 @@ def create_token(user):
     tokens[token] = user
     print tokens
     return token
-
-
-def save_passwords():
-    pf = csv.writer(open(dirDB + "/hashes.csv", "w"))
-    for key, val in passwords.items():
-        pf.writerow([key, val])
-
-
-def load_passwords():
-    if os.path.isfile(dirDB + "/hashes.csv"):
-        for key, val in csv.reader(open(dirDB + "/hashes.csv")):
-            passwords[key] = val
-
-
-def save_data():
-    if not os.path.exists(dirDB):
-        os.makedirs(dirDB)
-
-    for u in data:
-        if u == "":
-            pass
-        else:
-            path = os.path.join(dirDB, u + "_data.csv")
-            f = csv.writer(open(path, "w"))
-            for key, val in data[u].items():
-                f.writerow([key, val])
-
-    save_passwords()
-
-
-def load_data():
-    if os.path.exists(dirDB):
-        files_path = os.path.join(dirDB, "*_data.csv")
-        files = glob.glob(files_path)
-        for f in files:
-            _, filename = os.path.split(f)
-            name = filename[:-9]
-            data[name] = {}
-            for key, val in csv.reader(open(f)):
-                data[name][key] = val
-        load_passwords()
-    print data
 
 
 def is_int(s):
@@ -160,7 +112,6 @@ def delete_product():
 
     if product in data[user].keys():
         data[user].pop(product)
-        save_data()
         return jsonify(), OK
     else:
         abort(PRECONDITION_FAILED)
@@ -184,7 +135,6 @@ def add_product():
 
     else:
         data[user][product] = 0
-        save_data()
         return jsonify(), OK
 
 
@@ -208,12 +158,10 @@ def change_product():
         quantity += change
 
         data[user][product] = str(quantity)
-        save_data()
         return jsonify(name=product, value=data[user][product]), OK
 
     else:
         abort(PRECONDITION_FAILED)
 
 if __name__ == '__main__':
-    load_data()
     app.run(host='127.0.0.1', port=5678, debug=debug)
