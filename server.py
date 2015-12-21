@@ -11,6 +11,7 @@ from flask import request
 from flask import Flask
 
 import random
+import json
 
 debug = True
 
@@ -30,7 +31,8 @@ def create_token(user):
     while len(token) != 30:
         token += str(random.choice(token_parts))
     tokens[token] = user
-    totalList[user] = []
+    if user not in totalList:
+        totalList[user] = []
     if user not in productList:
         productList[user] = {}
     productList[user][token] = {}
@@ -53,15 +55,42 @@ def sync():
         abort(BAD_REQUEST)
 
     token = str(request.json['token'])
+    print "token-> ",
+    print token
+    print tokens
     if token not in tokens:
         abort(UNAUTHORIZED)
 
     user = tokens[token]
-    newdata = request.json['product']
+    newdata = {}
+    if request.json['product'] != "empty":
+        tmp = request.json['product']
+        if type(tmp) is dict:
+            newdata = tmp
+        else:
+            newdata = json.loads(tmp)
+
     olddata = productList[user][token]
     total = totalList[user]
 
+    print ""
+    print "newdata->"
+    print newdata
+
+    print ""
+    print "olddata->"
+    print olddata
+
     exitdata = {}
+
+    allkeys = []
+    for key in newdata:
+        allkeys.append(key)
+    for key in olddata:
+        allkeys.append(key)
+    for key in total:
+        allkeys.append(key)
+    allkeys = set(allkeys)
 
 #  e -> exists     ne -> not exists
 #  id totalList | olddata | newdata || endTotal | exitdata
@@ -74,28 +103,41 @@ def sync():
 # . 7   ne      |   ne    |   e     ||   e   +  |   e    +
 # . 8   ne      |   ne    |   ne    ||   ne     |   ne
 
-    for key, value in newdata.iteritems():
-        if key in olddata and key in total:  # 1
-            exitdata[key] = value
-        elif key not in olddata and key in total:  # 3
-            exitdata[key] = value
-        elif key in olddata and key not in total:  # 5
+    for key in allkeys:
+        if key in total and key in olddata and key in newdata:
+            # 1
+            exitdata[key] = newdata[key]
+
+        elif key in total and key in olddata and key not in newdata:
+            # 2
+            total.remove(key)
+
+        elif key in total and key not in olddata and key in newdata:
+            # 3
+            exitdata[key] = newdata[key]
+
+        elif key in total and key not in olddata and key not in newdata:
+            # 4
+            exitdata[key] = 0
+        elif key not in total and key in olddata and key in newdata:
+            # 5
             pass
-        elif key not in olddata and key not in total:  # 7
-            exitdata[key] = value
+
+        elif key not in total and key in olddata and key not in newdata:
+            # 6
+            pass
+
+        elif key not in total and key not in olddata and key in newdata:
+            # 7
+            exitdata[key] = newdata[key]
             total.append(key)
 
-    for key, value in olddata.iteritems():
-        if key not in newdata and key in total:  # 2
-            total.remove(key)
-        elif key not in newdata and key not in total:  # 6
+        elif key not in total and key not in olddata and key not in newdata:
+            # 8
             pass
 
-    for key in total:
-        if key not in olddata and key not in newdata:  # 4
-            exitdata[key] = 0
-
     productList[user][token] = exitdata
+    totalList[user] = total
 
     othersdata = {}
 
@@ -108,9 +150,19 @@ def sync():
                 if key in othersdata:
                     othersdata[key] += value
 
+    print ""
+    print "productList ->",
     print productList[user]
+    print ""
+    print "othersdata ->",
+    print othersdata
+    print ""
 
-    return jsonify(othersdata=othersdata), OK
+    print ""
+    print "total->"
+    print total
+
+    return jsonify(**othersdata), OK
 
 
 #  LOG IN
